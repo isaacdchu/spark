@@ -421,7 +421,7 @@ public:
         output_shape_ = calculate_output_shape(
             input_shape, kernel_shape_crsk, stride, pad, dilation
         );
-        std::tie(N_, H_, W_, C_) = std::tuple{input_shape[0], input_shape[1], input_shape[2], input_shape[3]};
+        std::tie(N_, H_, W_, C_) = input_shape_;
         R_ = kernel.shape()[0];
         S_ = kernel.shape()[1];
         P_ = output_shape_[1];

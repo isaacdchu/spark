@@ -1,7 +1,7 @@
 .vscode
 .DS_Store
 **/.DS_Store
-built/**
+build/**
 .venv
 *.ipynb
 .claude

@@ -361,6 +361,8 @@ enum cpuinfo_uarch {
 	cpuinfo_uarch_raptor_cove = 0x0010020F,
 	/** Intel Redwood Cove microarchitecture (Granite Rapids). */
 	cpuinfo_uarch_redwood_cove = 0x00100210,
+	/** Intel Coyote Cove microarchitecture. */
+	cpuinfo_uarch_coyote_cove = 0x00100211,
 
 	/** Pentium 4 with Willamette, Northwood, or Foster cores. */
 	cpuinfo_uarch_willamette = 0x00100300,
@@ -889,6 +891,7 @@ struct cpuinfo_x86_isa {
 	bool amx_tile;
 	bool amx_int8;
 	bool amx_fp16;
+	bool amx_fp8;
 	bool avx_vnni_int8;
 	bool avx_vnni_int16;
 	bool avx_ne_convert;
@@ -1460,6 +1463,14 @@ static inline bool cpuinfo_has_x86_amx_fp16(void) {
 #endif
 }
 
+static inline bool cpuinfo_has_x86_amx_fp8(void) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+	return cpuinfo_isa.amx_fp8;
+#else
+	return false;
+#endif
+}
+
 /*
  * Intel AVX Vector Neural Network Instructions (VNNI) INT8
  * Supported Platfroms: Sierra Forest, Arrow Lake, Lunar Lake
@@ -1760,6 +1771,9 @@ struct cpuinfo_arm_isa {
 	bool sme_bi32i32;
 	bool sme_b16b16;
 	bool sme_f16f16;
+	bool fp8;
+	bool f8dot;
+	bool f8mm;
 	uint32_t svelen;
 	uint32_t smelen;
 #endif
@@ -2065,6 +2079,30 @@ static inline bool cpuinfo_has_arm_fcma(void) {
 static inline bool cpuinfo_has_arm_i8mm(void) {
 #if CPUINFO_ARCH_ARM64
 	return cpuinfo_isa.i8mm;
+#else
+	return false;
+#endif
+}
+
+static inline bool cpuinfo_has_arm_fp8(void) {
+#if CPUINFO_ARCH_ARM64
+	return cpuinfo_isa.fp8;
+#else
+	return false;
+#endif
+}
+
+static inline bool cpuinfo_has_arm_f8dot(void) {
+#if CPUINFO_ARCH_ARM64
+	return cpuinfo_isa.f8dot;
+#else
+	return false;
+#endif
+}
+
+static inline bool cpuinfo_has_arm_f8mm(void) {
+#if CPUINFO_ARCH_ARM64
+	return cpuinfo_isa.f8mm;
 #else
 	return false;
 #endif

@@ -88,15 +88,39 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 CXX="${CXX:-g++-15}"
-OPENBLAS_DIR="$(brew --prefix openblas)"
+
+# OpenBLAS discovery: Homebrew on macOS, pkg-config (falling back to a bare
+# -lopenblas, which the multiarch-aware Linux linker/GCC search paths pick up)
+# everywhere else.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  OPENBLAS_DIR="$(brew --prefix openblas)"
+  OPENBLAS_INCLUDE=(-I"${OPENBLAS_DIR}/include")
+  OPENBLAS_LIB=(-L"${OPENBLAS_DIR}/lib" -lopenblas)
+else
+  if pkg-config --exists openblas 2>/dev/null; then
+    read -r -a OPENBLAS_INCLUDE <<< "$(pkg-config --cflags openblas)"
+    read -r -a OPENBLAS_LIB <<< "$(pkg-config --libs openblas)"
+  else
+    OPENBLAS_INCLUDE=()
+    OPENBLAS_LIB=(-lopenblas)
+  fi
+fi
 
 # These mirror CXXFLAGS / INCLUDE / LDFLAGS from the Makefile exactly, so the
 # sweep binary is built with the same flags as `make benchmark`.
 CXXFLAGS=(-std=c++23 -Wall -Werror -Wextra -Wno-unused -Wno-psabi -O3 -march=native -fopenmp)
-INCLUDE=(-Iinclude/taskflow -Iinclude/xsimd -Iinclude/xnnpack -I"${OPENBLAS_DIR}/include")
-# XNNPACK static libs (wildcard, like $(wildcard include/xnnpack/lib/*.a)).
-XNNPACK_LIBS=(include/xnnpack/lib/*.a)
-LDFLAGS=(-L"${OPENBLAS_DIR}/lib" -lopenblas "${XNNPACK_LIBS[@]}")
+INCLUDE=(-Iinclude/taskflow -Iinclude/xsimd -Iinclude/xnnpack "${OPENBLAS_INCLUDE[@]}")
+# XNNPACK static libs are staged per-platform by setup.sh (Mach-O on macOS,
+# ELF on Linux can't share a directory), mirroring the Makefile.
+PLATFORM_DIR="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
+XNNPACK_LIBS=(include/xnnpack/lib/"${PLATFORM_DIR}"/*.a)
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  LDFLAGS=("${OPENBLAS_LIB[@]}" "${XNNPACK_LIBS[@]}")
+else
+  # GNU ld needs --start-group/--end-group for the circular refs between
+  # libXNNPACK.a/libcpuinfo.a/libpthreadpool.a/the microkernel libs (see Makefile).
+  LDFLAGS=("${OPENBLAS_LIB[@]}" -Wl,--start-group "${XNNPACK_LIBS[@]}" -Wl,--end-group)
+fi
 
 SOURCE="src"
 BUILD="build"
@@ -226,7 +250,7 @@ for config in "${BLOCK_CONFIGS[@]}"; do
     MESSAGE="compiling block config ${CONFIG_INDEX}/${CONFIG_TOTAL}: ${config}"
     write_status
 
-    COMPILE_CMD=("${CXX}" "${CXXFLAGS[@]}" "${DEFINES[@]}" "${INCLUDE[@]}" "${LDFLAGS[@]}" -I"${SOURCE}" "${BENCH_SRC}" -o "${BENCH_BIN}")
+    COMPILE_CMD=("${CXX}" "${CXXFLAGS[@]}" "${DEFINES[@]}" "${INCLUDE[@]}" -I"${SOURCE}" "${BENCH_SRC}" -o "${BENCH_BIN}" "${LDFLAGS[@]}")
     echo "compiling:"
     echo "  ${COMPILE_CMD[*]}"
     if ! "${COMPILE_CMD[@]}"; then
