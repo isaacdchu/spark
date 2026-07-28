@@ -1182,74 +1182,76 @@ public:
     const std::array<std::size_t, 4>& output_shape() const override { return output_shape_; }
 
     Tensor<T, 4> run(const Tensor<T, 4>& input) override {
-      if (input.shape() != input_shape_) {
-          throw std::invalid_argument("[conv.hpp][Conv2dImplicitGemmKrsc] Input shape does not match the built operator");
-      }
-      const Tensor<T, 4>& kernel = kernel_;
-      const std::array<std::size_t, 2>& stride = stride_;
-      const Padding& padding = padding_;
-      const std::array<std::size_t, 2>& dilation = dilation_;
-      return this->timed([&]() -> Tensor<T, 4> {
-    // NHWC/KRSC format
-    if (input.shape()[3] != kernel.shape()[3]) {
-        throw std::invalid_argument("[conv.hpp][conv2d_implicit_gemm] Input and kernel channel dimensions do not match");
-    }
-    const std::array<std::size_t, 4> kernel_shape_crsk = {
-        kernel.shape()[3], kernel.shape()[1], kernel.shape()[2], kernel.shape()[0]
-    };
-    const std::array<std::size_t, 2> pad = handle_padding(
-        input.shape(), kernel_shape_crsk, stride, padding, dilation
-    );
-    const std::array<std::size_t, 4> output_shape = calculate_output_shape(
-        input.shape(), kernel_shape_crsk,
-        stride, pad, dilation
-    );
-    Tensor<T, 4> output(output_shape);
-    const auto [N, H, W, C] = input.shape();
-    const auto [K, R, S, C_] = kernel.shape();
-    const auto [N_, P, Q, K_] = output_shape;
-    const auto [S_H, S_W] = stride;
-    const auto [P_H, P_W] = pad;
-    const auto [D_H, D_W] = dilation;
-    T const* const input_ptr = input.values().data();
-    T const* const kernel_ptr = kernel.values().data();
-    T* const output_ptr = output.values().data();
-    auto implicit_gemm = [&](std::size_t n) -> void {
-        T* const output_ptr_n = output_ptr + n * P * Q * K;
-        for (std::size_t p = 0; p < P; p++) {
-            for (std::size_t q = 0; q < Q; q++) {
-                for (std::size_t k = 0; k < K; k++) {
-                    T sum = static_cast<T>(0);
-                    for (std::size_t r = 0; r < R; r++) {
-                        for (std::size_t s = 0; s < S; s++) {
-                            const std::ptrdiff_t h = static_cast<std::ptrdiff_t>(p * S_H + r * D_H)
-                                - static_cast<std::ptrdiff_t>(P_H);
-                            if (h < 0 || h >= static_cast<std::ptrdiff_t>(H)) continue;
-                            const std::ptrdiff_t w = static_cast<std::ptrdiff_t>(q * S_W + s * D_W)
-                                - static_cast<std::ptrdiff_t>(P_W);
-                            if (w < 0 || w >= static_cast<std::ptrdiff_t>(W)) continue;
-                            const std::size_t h_in = static_cast<std::size_t>(h);
-                            const std::size_t w_in = static_cast<std::size_t>(w);
-                            const T* const input_base = input_ptr + n * H * W * C + h_in * W * C + w_in * C;
-                            const T* const kernel_base = kernel_ptr + k * R * S * C + r * S * C + s * C;
-                            for (std::size_t c = 0; c < C; c++) {
-                                sum += input_base[c] * kernel_base[c];
+        if (input.shape() != input_shape_) {
+            throw std::invalid_argument("[conv.hpp][Conv2dImplicitGemmKrsc] Input shape does not match the built operator");
+        }
+        const Tensor<T, 4>& kernel = kernel_;
+        const std::array<std::size_t, 2>& stride = stride_;
+        const Padding& padding = padding_;
+        const std::array<std::size_t, 2>& dilation = dilation_;
+        return this->timed(
+            [&]() -> Tensor<T, 4> {
+                // NHWC/KRSC format
+                if (input.shape()[3] != kernel.shape()[3]) {
+                    throw std::invalid_argument("[conv.hpp][conv2d_implicit_gemm] Input and kernel channel dimensions do not match");
+                }
+                const std::array<std::size_t, 4> kernel_shape_crsk = {
+                    kernel.shape()[3], kernel.shape()[1], kernel.shape()[2], kernel.shape()[0]
+                };
+                const std::array<std::size_t, 2> pad = handle_padding(
+                    input.shape(), kernel_shape_crsk, stride, padding, dilation
+                );
+                const std::array<std::size_t, 4> output_shape = calculate_output_shape(
+                    input.shape(), kernel_shape_crsk,
+                    stride, pad, dilation
+                );
+                Tensor<T, 4> output(output_shape);
+                const auto [N, H, W, C] = input.shape();
+                const auto [K, R, S, C_] = kernel.shape();
+                const auto [N_, P, Q, K_] = output_shape;
+                const auto [S_H, S_W] = stride;
+                const auto [P_H, P_W] = pad;
+                const auto [D_H, D_W] = dilation;
+                T const* const input_ptr = input.values().data();
+                T const* const kernel_ptr = kernel.values().data();
+                T* const output_ptr = output.values().data();
+                auto implicit_gemm = [&](std::size_t n) -> void {
+                    T* const output_ptr_n = output_ptr + n * P * Q * K;
+                    for (std::size_t p = 0; p < P; p++) {
+                        for (std::size_t q = 0; q < Q; q++) {
+                            for (std::size_t k = 0; k < K; k++) {
+                                T sum = static_cast<T>(0);
+                                for (std::size_t r = 0; r < R; r++) {
+                                    for (std::size_t s = 0; s < S; s++) {
+                                        const std::ptrdiff_t h = static_cast<std::ptrdiff_t>(p * S_H + r * D_H)
+                                            - static_cast<std::ptrdiff_t>(P_H);
+                                        if (h < 0 || h >= static_cast<std::ptrdiff_t>(H)) continue;
+                                        const std::ptrdiff_t w = static_cast<std::ptrdiff_t>(q * S_W + s * D_W)
+                                            - static_cast<std::ptrdiff_t>(P_W);
+                                        if (w < 0 || w >= static_cast<std::ptrdiff_t>(W)) continue;
+                                        const std::size_t h_in = static_cast<std::size_t>(h);
+                                        const std::size_t w_in = static_cast<std::size_t>(w);
+                                        const T* const input_base = input_ptr + n * H * W * C + h_in * W * C + w_in * C;
+                                        const T* const kernel_base = kernel_ptr + k * R * S * C + r * S * C + s * C;
+                                        for (std::size_t c = 0; c < C; c++) {
+                                            sum += input_base[c] * kernel_base[c];
+                                        }
+                                    }
+                                }
+                                output_ptr_n[p * Q * K + q * K + k] = sum;
                             }
                         }
                     }
-                    output_ptr_n[p * Q * K + q * K + k] = sum;
-                }
+                };
+                tf::Taskflow taskflow("conv2d_implicit_gemm");
+                taskflow.for_each_index(
+                    static_cast<std::size_t>(0), N, static_cast<std::size_t>(1),
+                    implicit_gemm
+                );
+                executor.run(taskflow).wait();
+                return output;
             }
-        }
-    };
-    tf::Taskflow taskflow("conv2d_implicit_gemm");
-    taskflow.for_each_index(
-        static_cast<std::size_t>(0), N, static_cast<std::size_t>(1),
-        implicit_gemm
-    );
-    executor.run(taskflow).wait();
-    return output;
-      });
+        );
     }
 
 private:
@@ -1288,39 +1290,41 @@ public:
     const std::array<std::size_t, 4>& output_shape() const override { return output_shape_; }
 
     Tensor<T, 4> run(const Tensor<T, 4>& input) override {
-      if (input.shape() != input_shape_) {
-          throw std::invalid_argument("[conv.hpp][Conv2dExplicitGemmCrsk] Input shape does not match the built operator");
-      }
-      const Tensor<T, 4>& kernel = kernel_;
-      const Tensor<T, 2>& kernel_matrix = kernel_matrix_;
-      const std::array<std::size_t, 2>& stride = stride_;
-      const Padding& padding = padding_;
-      const std::array<std::size_t, 2>& dilation = dilation_;
-      return this->timed([&]() -> Tensor<T, 4> {
-    std::array<std::size_t, 2> pad = handle_padding(input.shape(), kernel.shape(), stride, padding, dilation);
-    const std::array<std::size_t, 4> output_shape = calculate_output_shape(
-        input.shape(), kernel.shape(),
-        stride, pad, dilation
-    );
-    Tensor<T, 4> output(output_shape);
-    tf::Taskflow taskflow("conv2d_explicit_gemm");
-    taskflow.for_each_index(
-        static_cast<std::size_t>(0), input.shape()[0], static_cast<std::size_t>(1),
-        [&](std::size_t n) -> void {
-            auto im2col_result = Tensor<T, 2>(
-                output_shape[1] * output_shape[2], kernel.size() / kernel.shape()[3]
-            );
-            im2col2d(input, kernel, stride, pad, dilation, n, im2col_result);
-            auto matmul_result = Tensor<T, 2>(
-                output_shape[1] * output_shape[2], kernel.shape()[3]
-            );
-            matmul<T>(im2col_result, kernel_matrix, matmul_result);
-            col2im2d(matmul_result, output_shape, n, output);
+        if (input.shape() != input_shape_) {
+            throw std::invalid_argument("[conv.hpp][Conv2dExplicitGemmCrsk] Input shape does not match the built operator");
         }
-    );
-    executor.run(taskflow).wait();
-    return output;
-      });
+        const Tensor<T, 4>& kernel = kernel_;
+        const Tensor<T, 2>& kernel_matrix = kernel_matrix_;
+        const std::array<std::size_t, 2>& stride = stride_;
+        const Padding& padding = padding_;
+        const std::array<std::size_t, 2>& dilation = dilation_;
+        return this->timed(
+            [&]() -> Tensor<T, 4> {
+                std::array<std::size_t, 2> pad = handle_padding(input.shape(), kernel.shape(), stride, padding, dilation);
+                const std::array<std::size_t, 4> output_shape = calculate_output_shape(
+                    input.shape(), kernel.shape(),
+                    stride, pad, dilation
+                );
+                Tensor<T, 4> output(output_shape);
+                tf::Taskflow taskflow("conv2d_explicit_gemm");
+                taskflow.for_each_index(
+                    static_cast<std::size_t>(0), input.shape()[0], static_cast<std::size_t>(1),
+                    [&](std::size_t n) -> void {
+                        auto im2col_result = Tensor<T, 2>(
+                            output_shape[1] * output_shape[2], kernel.size() / kernel.shape()[3]
+                        );
+                        im2col2d(input, kernel, stride, pad, dilation, n, im2col_result);
+                        auto matmul_result = Tensor<T, 2>(
+                            output_shape[1] * output_shape[2], kernel.shape()[3]
+                        );
+                        matmul<T>(im2col_result, kernel_matrix, matmul_result);
+                        col2im2d(matmul_result, output_shape, n, output);
+                    }
+                );
+                executor.run(taskflow).wait();
+                return output;
+            }
+        );
     }
 
 private:
@@ -1372,63 +1376,65 @@ public:
     const std::array<std::size_t, 4>& output_shape() const override { return output_shape_; }
 
     Tensor<T, 4> run(const Tensor<T, 4>& input) override {
-      if (input.shape() != input_shape_) {
-          throw std::invalid_argument("[conv.hpp][Conv2dPipeline] Input shape does not match the built operator");
-      }
-      const Tensor<T, 4>& kernel = kernel_;
-      const std::array<std::size_t, 2>& stride = stride_;
-      const Padding& padding = padding_;
-      const std::array<std::size_t, 2>& dilation = dilation_;
-      std::array<PipeData, num_lines>& buffer = buffer_;
-      Tensor<T, 2>& kernel_matrix = kernel_matrix_;
-      return this->timed([&]() -> Tensor<T, 4> {
-    std::array<std::size_t, 2> pad = handle_padding(input.shape(), kernel.shape(), stride, padding, dilation);
-    const std::size_t N = input.shape()[0];
-    const std::array<std::size_t, 4> output_shape = calculate_output_shape(
-        input.shape(), kernel.shape(),
-        stride, pad, dilation
-    );
-    Tensor<T, 4> output = Tensor<T, 4>(output_shape);
-    tf::Taskflow taskflow("conv2d_pipeline");
-    tf::Pipeline pipeline(
-        num_lines,
-        tf::Pipe{
-            tf::PipeType::SERIAL,
-            [&](tf::Pipeflow& pf) -> void {
-                // stop pipe after N samples
-                if (pf.token() == N) {
-                    pf.stop();
-                    return;
-                }
-            }
-        },
-        tf::Pipe{
-            tf::PipeType::PARALLEL,
-            [&](tf::Pipeflow& pf) -> void {
-                im2col2d(
-                    input, kernel, stride, pad, dilation, pf.token(), buffer[pf.line()].im2col_result
-                );
-            }
-        },
-        tf::Pipe{
-            tf::PipeType::PARALLEL,
-            [&](tf::Pipeflow& pf) -> void {
-                matmul<T>(
-                    buffer[pf.line()].im2col_result, kernel_matrix, buffer[pf.line()].matmul_result
-                );
-            }
-        },
-        tf::Pipe{
-            tf::PipeType::PARALLEL,
-            [&](tf::Pipeflow& pf) -> void {
-                col2im2d(buffer[pf.line()].matmul_result, output_shape, pf.token(), output);
-            }
+        if (input.shape() != input_shape_) {
+            throw std::invalid_argument("[conv.hpp][Conv2dPipeline] Input shape does not match the built operator");
         }
-    );
-    tf::Task pipeline_task = taskflow.composed_of(pipeline).name("pipeline_task");
-    executor.run(taskflow).wait();
-    return output;
-      });
+        const Tensor<T, 4>& kernel = kernel_;
+        const std::array<std::size_t, 2>& stride = stride_;
+        const Padding& padding = padding_;
+        const std::array<std::size_t, 2>& dilation = dilation_;
+        std::array<PipeData, num_lines>& buffer = buffer_;
+        Tensor<T, 2>& kernel_matrix = kernel_matrix_;
+        return this->timed(
+            [&]() -> Tensor<T, 4> {
+                std::array<std::size_t, 2> pad = handle_padding(input.shape(), kernel.shape(), stride, padding, dilation);
+                const std::size_t N = input.shape()[0];
+                const std::array<std::size_t, 4> output_shape = calculate_output_shape(
+                    input.shape(), kernel.shape(),
+                    stride, pad, dilation
+                );
+                Tensor<T, 4> output = Tensor<T, 4>(output_shape);
+                tf::Taskflow taskflow("conv2d_pipeline");
+                tf::Pipeline pipeline(
+                    num_lines,
+                    tf::Pipe{
+                        tf::PipeType::SERIAL,
+                        [&](tf::Pipeflow& pf) -> void {
+                            // stop pipe after N samples
+                            if (pf.token() == N) {
+                                pf.stop();
+                                return;
+                            }
+                        }
+                    },
+                    tf::Pipe{
+                        tf::PipeType::PARALLEL,
+                        [&](tf::Pipeflow& pf) -> void {
+                            im2col2d(
+                                input, kernel, stride, pad, dilation, pf.token(), buffer[pf.line()].im2col_result
+                            );
+                        }
+                    },
+                    tf::Pipe{
+                        tf::PipeType::PARALLEL,
+                        [&](tf::Pipeflow& pf) -> void {
+                            matmul<T>(
+                                buffer[pf.line()].im2col_result, kernel_matrix, buffer[pf.line()].matmul_result
+                            );
+                        }
+                    },
+                    tf::Pipe{
+                        tf::PipeType::PARALLEL,
+                        [&](tf::Pipeflow& pf) -> void {
+                            col2im2d(buffer[pf.line()].matmul_result, output_shape, pf.token(), output);
+                        }
+                    }
+                );
+                tf::Task pipeline_task = taskflow.composed_of(pipeline).name("pipeline_task");
+                executor.run(taskflow).wait();
+                return output;
+            }
+        );
     }
 
 private:
@@ -1533,21 +1539,23 @@ public:
     // setup (rebind pointers) + run, both inside the timed region (matching how
     // the benchmark timed op->run() wholesale). No weight packing or reshape here.
     Tensor<float, 4> run(const Tensor<float, 4>& input) override {
-        return this->timed([&]() -> Tensor<float, 4> {
-        Tensor<float, 4> output(output_shape_);
-        xnn_status status = xnn_setup_convolution2d_nhwc_f32(
-            op_, workspace_,
-            input.values().data(), output.values().data()
+        return this->timed(
+            [&]() -> Tensor<float, 4> {
+                Tensor<float, 4> output(output_shape_);
+                xnn_status status = xnn_setup_convolution2d_nhwc_f32(
+                    op_, workspace_,
+                    input.values().data(), output.values().data()
+                );
+                if (status != xnn_status_success) {
+                    throw std::runtime_error("[conv.hpp][Conv2dXnnpack] Failed to setup XNNPACK conv2d operator");
+                }
+                status = xnn_run_operator(op_, threadpool());
+                if (status != xnn_status_success) {
+                    throw std::runtime_error("[conv.hpp][Conv2dXnnpack] Failed to run XNNPACK conv2d operator");
+                }
+                return output;
+            }
         );
-        if (status != xnn_status_success) {
-            throw std::runtime_error("[conv.hpp][Conv2dXnnpack] Failed to setup XNNPACK conv2d operator");
-        }
-        status = xnn_run_operator(op_, threadpool());
-        if (status != xnn_status_success) {
-            throw std::runtime_error("[conv.hpp][Conv2dXnnpack] Failed to run XNNPACK conv2d operator");
-        }
-        return output;
-        });
     }
 
     const std::array<std::size_t, 4>& output_shape() const override { return output_shape_; }
