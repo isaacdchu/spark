@@ -24,6 +24,14 @@ endif
 SOURCE = src
 BUILD = build
 INCLUDE = -Iinclude/taskflow -Iinclude/xsimd -Iinclude/xnnpack -isystem include $(OPENBLAS_INCLUDE)
+# Where the Python venv lives. Overridable so it can sit outside the checkout:
+# under WSL2 the repo is typically on /mnt/c, where a multi-gigabyte torch
+# install is slow to reach over 9p and gets picked up by folder sync. Pair with
+# UV_PROJECT_ENVIRONMENT so uv builds it in the same place, e.g.
+#   export UV_PROJECT_ENVIRONMENT=$HOME/venvs/w8
+#   make VENV=$HOME/venvs/w8 tests
+VENV ?= .venv
+ACTIVATE = source $(VENV)/bin/activate
 
 $(BUILD)/main: main.cpp $(SOURCE)/*.hpp
 	$(CXX) $(CXXFLAGS) $(INCLUDE) -I$(SOURCE) main.cpp -o $(BUILD)/main $(LDFLAGS)
@@ -32,7 +40,7 @@ run: $(BUILD)/main
 	./$(BUILD)/main
 
 mprof: $(BUILD)/main
-	source .venv/bin/activate && mprof run ./$(BUILD)/main
+	$(ACTIVATE) && mprof run ./$(BUILD)/main
 
 tfprof: $(BUILD)/main
 	TF_ENABLE_PROFILER=result.tfp ./$(BUILD)/main
@@ -42,14 +50,14 @@ $(BUILD)/tests: tests/tests.cpp $(SOURCE)/*.hpp
 
 tests: $(BUILD)/tests
 	./$(BUILD)/tests tests/actual.txt
-	source .venv/bin/activate && python tests/tests.py tests/expected.txt && python tests/compare.py tests/actual.txt tests/expected.txt
+	$(ACTIVATE) && python tests/tests.py tests/expected.txt && python tests/compare.py tests/actual.txt tests/expected.txt
 
 # All benchmarking is launched from the dashboard. Start it with `make dashboard`,
 # then choose parameters and run sweeps from the Run panel. The dashboard invokes
 # benchmark/run_sweep.sh (which compiles benchmark/benchmark.cpp per block config)
 # under the hood, so there is no standalone benchmark run target.
 dashboard:
-	source .venv/bin/activate && python benchmark/benchmark.py
+	$(ACTIVATE) && python benchmark/benchmark.py
 
 clean:
 	rm -rf $(BUILD)/*
