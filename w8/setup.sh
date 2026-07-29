@@ -41,12 +41,21 @@ PLATFORM_DIR="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
 if [ -f "$DIR"/include/xnnpack/lib/"$PLATFORM_DIR"/libXNNPACK.a ]; then
     echo "XNNPACK ($PLATFORM_DIR) already exists, skipping clone."
 else
-    if [ ! -d "$DIR"/XNNPACK ]; then
-        echo "Cloning XNNPACK..."
-        cd "$DIR" && git clone "https://github.com/google/XNNPACK.git"
+    # Clone and build outside the repo. On WSL2 the checkout usually lives under
+    # /mnt/c, which is mounted via 9p/DrvFs without the "metadata" option, so
+    # chmod there fails with EPERM -- and that makes `git clone` abort with
+    # "could not set 'core.filemode'". A scratch dir on the native filesystem
+    # sidesteps that, keeps a multi-gigabyte build tree out of the repo (and out
+    # of any folder that gets cloud-synced), and is dramatically faster than
+    # building across the 9p mount. Override the location with XNNPACK_BUILD_DIR.
+    XNNPACK_SRC="${XNNPACK_BUILD_DIR:-$HOME/.cache/w8-xnnpack}"
+    if [ ! -d "$XNNPACK_SRC"/.git ]; then
+        echo "Cloning XNNPACK into $XNNPACK_SRC ..."
+        rm -rf "$XNNPACK_SRC"
+        mkdir -p "$(dirname "$XNNPACK_SRC")" || exit 1
+        git clone --depth 1 "https://github.com/google/XNNPACK.git" "$XNNPACK_SRC" || exit 1
     else
-        echo "Reusing existing XNNPACK clone."
-        cd "$DIR"
+        echo "Reusing existing XNNPACK clone at $XNNPACK_SRC."
     fi
     echo "Building XNNPACK (this can take a while)..."
     # Bound parallelism to avoid OOM: the microkernel translation units are large,
@@ -60,31 +69,39 @@ else
         [ "$JOBS" -gt "$ncpu" ] && JOBS=$ncpu
     fi
     echo "Using $JOBS parallel build job(s)."
-    cmake -S XNNPACK -B XNNPACK/build \
+    cmake -S "$XNNPACK_SRC" -B "$XNNPACK_SRC"/build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_C_COMPILER="${CC:-gcc-15}" \
         -DCMAKE_CXX_COMPILER="${CXX:-g++-15}" \
         -DXNNPACK_BUILD_TESTS=OFF \
-        -DXNNPACK_BUILD_BENCHMARKS=OFF
-    cmake --build XNNPACK/build --config Release -j "$JOBS"
+        -DXNNPACK_BUILD_BENCHMARKS=OFF || exit 1
+    cmake --build "$XNNPACK_SRC"/build --config Release -j "$JOBS" || exit 1
     echo "Staging XNNPACK headers and libraries..."
-    mkdir -p "$DIR"/include/xnnpack/lib/"$PLATFORM_DIR"
+    mkdir -p "$DIR"/include/xnnpack/lib/"$PLATFORM_DIR" || exit 1
     # Public header (include/xnnpack.h) plus the pthreadpool header it pulls in.
     # Only seed these on a fresh checkout. The vendored copies are pinned to the
     # revision the conv2d_xnnpack backend was written against; overwriting them
     # with whatever upstream HEAD happens to be can silently break that API.
     if [ ! -f "$DIR"/include/xnnpack/xnnpack.h ]; then
-        cp -r XNNPACK/include/. include/xnnpack/
-        find XNNPACK/build -name "pthreadpool.h" -exec cp {} include/xnnpack/ \;
-        find XNNPACK/build -name "cpuinfo.h" -exec cp {} include/xnnpack/ \;
+        cp -r "$XNNPACK_SRC"/include/. "$DIR"/include/xnnpack/
+        find "$XNNPACK_SRC"/build -name "pthreadpool.h" -exec cp {} "$DIR"/include/xnnpack/ \;
+        find "$XNNPACK_SRC"/build -name "cpuinfo.h" -exec cp {} "$DIR"/include/xnnpack/ \;
     else
         echo "Reusing existing pinned XNNPACK headers."
     fi
     # Static libraries: libXNNPACK.a and its bundled deps (pthreadpool, cpuinfo, microkernels).
-    find XNNPACK/build -name "*.a" -exec cp {} include/xnnpack/lib/"$PLATFORM_DIR"/ \;
-    echo "Cleaning up XNNPACK clone..."
-    rm -rf XNNPACK/
+    find "$XNNPACK_SRC"/build -name "*.a" -exec cp {} "$DIR"/include/xnnpack/lib/"$PLATFORM_DIR"/ \;
+    # Verify rather than trust: every step above is individually fallible, and a
+    # silent partial failure here surfaces much later as a confusing link error.
+    if [ ! -f "$DIR"/include/xnnpack/lib/"$PLATFORM_DIR"/libXNNPACK.a ]; then
+        echo "ERROR: XNNPACK build produced no libXNNPACK.a in include/xnnpack/lib/$PLATFORM_DIR/" >&2
+        echo "       Build tree kept at $XNNPACK_SRC for inspection; re-run to retry." >&2
+        exit 1
+    fi
+    echo "Staged $(ls "$DIR"/include/xnnpack/lib/"$PLATFORM_DIR"/*.a | wc -l) archive(s) for $PLATFORM_DIR."
+    # The clone is deliberately left in place: it makes a retry after an OOM-killed
+    # build cheap, and it lives outside the repo so it costs the checkout nothing.
 fi
 
 if [ -d "$DIR"/include/tiny_dnn/ ]; then
