@@ -1,0 +1,22 @@
+# Force LF in the working tree on every platform. Git for Windows ships
+# core.autocrlf=true in its system gitconfig, which would otherwise check these
+# files out with CRLF -- and a CRLF shell script fails under WSL2 bash with
+# "bad interpreter: /bin/bash^M", while a CRLF Makefile puts a literal \r into
+# every variable value and at the end of every recipe line.
+#
+# eol=lf only converts line endings; it never touches tabs, so it is safe for
+# the tab-sensitive Makefile.
+* text=auto eol=lf
+
+*.sh     text eol=lf
+Makefile text eol=lf
+*.py     text eol=lf
+*.cpp    text eol=lf
+*.hpp    text eol=lf
+
+*.a      binary
+*.o      binary
+*.so     binary
+*.dylib  binary
+*.dll    binary
+*.ipynb  binary
